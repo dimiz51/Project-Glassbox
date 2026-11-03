@@ -1,6 +1,5 @@
-# screenshots + logs per session (the folder itself is kept via .gitkeep)
-session_blob/*
-!session_blob/.gitkeep
+# screenshots + logs per session (created at runtime by the backend / docker compose)
+session_blob/
 .env
 __pycache__/
 .venv/
