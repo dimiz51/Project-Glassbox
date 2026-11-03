@@ -1,0 +1,30 @@
+name: project-glassbox
+
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434   # Ollama runs on your machine
+      HEADLESS: "false"                                    # headed, on the container's virtual display
+      BLOB_DIR: /app/session_blob
+    extra_hosts:
+      - host.docker.internal:host-gateway                  # needed on Linux, harmless on Mac/Windows
+    volumes:
+      - type: bind                                         # screenshots land in ./session_blob/{session_id}
+        source: ./session_blob
+        target: /app/session_blob
+        bind:
+          create_host_path: true                           # created on your machine if missing
+    shm_size: 1gb                                          # Chromium needs more than Docker's 64MB default
+    init: true                                             # xvfb-run hangs as PID 1 without an init process
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    depends_on: [backend]
+    ports:
+      - "3000:80"

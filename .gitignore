@@ -1,0 +1,9 @@
+# screenshots + logs per session (the folder itself is kept via .gitkeep)
+session_blob/*
+!session_blob/.gitkeep
+.env
+__pycache__/
+.venv/
+node_modules/
+dist/
+.DS_Store
