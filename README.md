@@ -119,7 +119,5 @@ If Ollama is down or the model isn't pulled, a running task stops right away wit
 | `OLLAMA_MODEL` | Notes |
 |---|---|
 | `qwen3.5:9b` (default) | Good balance. Around 10–25 s per step on an M-series Mac |
-| `qwen3.5:4b` | Faster, makes more mistakes |
-| `qwen3.8:27b` | Newest Qwen, best results, needs about 20 GB of RAM |
 
 Set `OLLAMA_THINK=true` to turn on thinking mode: the model plans better but each step is much slower. `OLLAMA_REPEAT_PENALTY` (default 1.1) discourages repeated tokens within one reply. If the agent repeats the same `message`, the backend ends the task.
