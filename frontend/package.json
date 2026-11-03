@@ -1,0 +1,22 @@
+{
+  "name": "project-glassbox-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
+    "svelte": "^5.57.3",
+    "vite": "^8.3.5"
+  },
+  "dependencies": {
+    "dompurify": "^3.4.17",
+    "embla-carousel": "^8.6.0",
+    "embla-carousel-svelte": "^8.6.0",
+    "marked": "^18.1.3"
+  }
+}
