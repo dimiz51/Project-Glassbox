@@ -1,8 +1,8 @@
 """Sandbox Chromium controlled through Playwright (its own process + context, never your own browser).
 
-Each step we take a screenshot and list the visible interactive elements with their centre on a
-0-1000 grid (the coordinate space Qwen-VL models are trained to point in). The model answers with
-x/y on that grid and we scale back to pixels.
+Each step the model gets a screenshot, the URL and tab title, and the interactive elements on screen
+(kind, label and centre; no page text). It points on a 0-1000 grid (the coordinate space Qwen-VL
+models are trained to point in) and we scale back to pixels.
 """
 
 import asyncio
@@ -25,8 +25,8 @@ ELEMENTS_JS = r"""
   for (const el of document.querySelectorAll(sel)) {
     const r = el.getBoundingClientRect();
     if (r.width < 4 || r.height < 4 || r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw) continue;
-    const st = getComputedStyle(el);
-    if (st.visibility === 'hidden' || st.display === 'none' || +st.opacity === 0) continue;
+    // also checks ancestors: e.g. links in a closed menu overlay whose container has opacity 0
+    if (!el.checkVisibility({opacityProperty: true, visibilityProperty: true})) continue;
     const x = Math.min(Math.max(r.left + r.width / 2, 1), vw - 1);
     const y = Math.min(Math.max(r.top + r.height / 2, 1), vh - 1);
     const hit = document.elementFromPoint(x, y);
@@ -152,35 +152,30 @@ class BrowserSession:
 
     async def observe(self, screenshot_path) -> dict:
         page = self.page
-        try:
-            await page.wait_for_load_state("domcontentloaded", timeout=5000)
-        except Exception:
-            pass
-        await asyncio.sleep(0.8)  # let late JS render
+        # Wait for the page and its follow-up requests (e.g. the cookie banner's consent script), each
+        # capped: some sites never go network-idle (analytics, websockets). Already loaded = no wait.
+        for state, timeout in (("load", 8000), ("networkidle", 3000)):
+            try:
+                await page.wait_for_load_state(state, timeout=timeout)
+            except Exception:
+                pass
+        await asyncio.sleep(0.8)  # let late JS render and banners/menus animate in
 
         try:
             elements = await page.evaluate(ELEMENTS_JS)
         except Exception:
             elements = []
+        try:  # which part of the page is on screen: top/bottom as 0-1 of the page height
+            scroll = await page.evaluate(
+                "() => { const h = Math.max(document.documentElement.scrollHeight, innerHeight);"
+                " return {top: scrollY / h, bottom: Math.min((scrollY + innerHeight) / h, 1), screens: h / innerHeight}; }"
+            )
+        except Exception:
+            scroll = None
         png = await page.screenshot(type="png")
         screenshot_path.write_bytes(png)
         await self.push_frame()  # live view shows exactly what the model is about to decide on
-
-        try:
-            text = await page.evaluate("() => document.body ? document.body.innerText : ''")
-        except Exception:
-            text = ""
-        scroll = await page.evaluate(
-            "() => ({y: Math.round(scrollY), h: document.documentElement.scrollHeight, vh: innerHeight})"
-        )
-        return {
-            "url": page.url,
-            "title": await page.title(),
-            "elements": elements,
-            "text": " ".join(text.split())[:5000],
-            "scroll": scroll,
-            "png": png,
-        }
+        return {"url": page.url, "title": await page.title(), "elements": elements, "scroll": scroll, "png": png}
 
     # ---- act -------------------------------------------------------------
 
@@ -207,29 +202,11 @@ class BrowserSession:
             await asyncio.sleep(0.025)
         self._mouse = (x, y)
 
-    async def click(self, coordinate: list[int] | None) -> str:
+    async def click(self, coordinate: list[int] | None):
         x, y = self._px(coordinate)
         await self._glide(x, y)
         await self.page.mouse.click(x, y)
         await self.page.wait_for_timeout(300)
-        return await self._focus_note()
-
-    async def _focus_note(self) -> str:
-        """What the click did, so the model can tell it worked (e.g. a search box is now focused)."""
-        try:
-            el = await self.page.evaluate(
-                """() => { const a = document.activeElement;
-                  if (!a || a === document.body) return null;
-                  return {tag: a.tagName.toLowerCase(), label: (a.getAttribute('aria-label') || a.placeholder ||
-                          a.name || a.innerText || '').trim().slice(0, 50), editable: a.isContentEditable ||
-                          ['input', 'textarea', 'select'].includes(a.tagName.toLowerCase())}; }"""
-            )
-        except Exception:
-            return "page changed"
-        if not el:
-            return "nothing focused"
-        hint = " (text field: use `type` to enter text)" if el["editable"] else ""
-        return f'focused {el["tag"]} "{el["label"]}"{hint}'
 
     async def type(self, coordinate: list[int] | None, text: str):
         if coordinate:  # without one, type into whatever is focused (e.g. the field clicked last step)
@@ -243,20 +220,24 @@ class BrowserSession:
     async def press(self, key: str):
         await self.page.keyboard.press(key)
 
-    async def scroll(self, direction: str) -> str:
-        """Scrolls ~80% of a screen and reports where we actually ended up."""
-        pos = "() => [Math.round(scrollY), document.documentElement.scrollHeight, innerHeight]"
-        before, _, _ = await self.page.evaluate(pos)
+    async def scroll(self, how: str):
+        """`how`: "down" / "up" with an optional number of screens ("down 3", "up 0.5"; default 0.8),
+        or "top" / "bottom". Whether it moved, the model sees in the next screenshot."""
+        words = how.lower().split() or ["down"]
+        if words[0] in ("top", "bottom"):
+            direction, screens = ("up" if words[0] == "top" else "down"), 100.0  # past either end of any page
+        else:
+            direction = "up" if words[0] == "up" else "down"
+            try:
+                screens = min(max(float(words[1]), 0.1), 100.0) if len(words) > 1 else 0.8
+            except ValueError:
+                screens = 0.8
         # many small wheel steps instead of one jump, so the live view shows the page gliding
-        total = settings.viewport_height * 0.8 * (-1 if direction == "up" else 1)
+        total = settings.viewport_height * screens * (-1 if direction == "up" else 1)
         for _ in range(16):
             await self.page.mouse.wheel(0, total / 16)
             await asyncio.sleep(0.02)
         await self.page.wait_for_timeout(250)
-        y, h, vh = await self.page.evaluate(pos)
-        if y == before:
-            return f"did not move: already at the {'top' if direction == 'up' else 'bottom'}"
-        return f"now showing {y}–{y + vh} of {h}px"
 
     async def back(self):
         await self.page.go_back(wait_until="domcontentloaded", timeout=15000)

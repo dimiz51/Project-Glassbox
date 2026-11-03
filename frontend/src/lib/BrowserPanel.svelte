@@ -8,8 +8,12 @@
 
   const shown = $derived(shots.length ? shots[picked ?? shots.length - 1] : null)
 
-  // step timeline carousel (Embla): drag or use the arrows; follows the newest / selected step
+  // step timeline carousel (Embla), only in the agent view: drag or use the arrows; follows the
+  // newest / selected step
   let embla = $state()
+  $effect(() => {
+    if (view !== 'agent') embla = undefined  // carousel unmounted; it re-inits when shown again
+  })
   const carousel = { options: { align: 'end', containScroll: 'trimSnaps', dragFree: true }, plugins: [] }
   $effect(() => {
     const i = picked ?? shots.length - 1
@@ -64,7 +68,7 @@
     {/if}
   </div>
 
-  {#if shots.length}
+  {#if view === 'agent' && shots.length}
     <div class="timeline">
       <button class="arrow" onclick={() => embla?.scrollPrev()} aria-label="Earlier steps"><Icon name="chevron" /></button>
       <div class="embla" use:emblaCarouselSvelte={carousel} onemblaInit={(e) => (embla = e.detail)}>

@@ -1,13 +1,13 @@
 # Project Glassbox
 
-You give a prompt. A **local vision model** (Ollama) drives a **sandboxed Chromium** until it can answer. You watch its browser live next to the chat and can steer the agent with chat messages.
+You give a prompt. A **vision model** (local with Ollama, or OpenAI) drives a **sandboxed Chromium** until it can answer. You watch its browser live next to the chat and can steer the agent with chat messages.
 
 ![Glassbox answering "how tall is the Eiffel Tower and when was it built" by browsing Wikipedia (qwen3.5:9b, 5 steps, sped up 4×)](readme-images/demo.gif)
 
 ```
  your browser: Svelte UI (:3000)              backend container: FastAPI (:8000)
 ┌──────────────────────────────┐             ┌─────────────────────────────────────────┐
-│ chat panel                   │◄─ ws/chat ─►│ BrowserAgent loop ── LangChain ──►  Ollama (your machine)
+│ chat panel                   │◄─ ws/chat ─►│ BrowserAgent loop ── LangChain ──►  Ollama (your machine) or OpenAI
 │ live browser view (read-only)│◄─ ws/live ──│ sandbox Chromium (Playwright, Xvfb)     │
 └──────────────────────────────┘  frames     │ screenshots → ./session_blob/{id}/      │
                                              └─────────────────────────────────────────┘
@@ -20,8 +20,8 @@ The loop is `BrowserAgent.run` in [backend/app/services/agent.py](backend/app/se
 | Method | Role |
 |---|---|
 | `read_user_messages()` | pick up anything you typed while the agent was working (steering) |
-| `observe()` | screenshot of the sandbox browser (saved to `session_blob/{id}/`), plus the URL, the page text, and clickable elements with their centre on a **0–1000 grid** |
-| `decide()` | one LangChain `ChatOllama` call. Ollama constrains the reply to one JSON object ([schema](backend/app/schemas/agent.py)) |
+| `observe()` | waits for the page to load and settle, then takes a screenshot (saved to `session_blob/{id}/`) and lists the interactive elements on screen with their centre on a **0–1000 grid**, plus the URL, tab title and which part of the page is visible (in % of its height) |
+| `decide()` | one LangChain model call ([llm.py](backend/app/services/llm.py): Ollama or OpenAI). It gets your task, the last `HISTORY_MESSAGES` messages of steps and actions (default 10; only the newest `HISTORY_IMAGES` screenshots are sent as images, default 3), and the current browser state. The provider constrains the reply to one JSON object ([schema](backend/app/schemas/agent.py)) |
 | `respond()` | the output is `message` (talk to you, keep working) or `done` (final answer) |
 | `act()` | the output is a browser action, run with Playwright |
 
@@ -32,17 +32,20 @@ When the task ends, `give_up()` runs if the agent hit `MAX_STEPS`, then `remembe
 ```
 
 `action` is one of:
-- a browser action: `navigate`, `click`, `type`, `key`, `scroll`, `back`, `wait`
+- a browser action: `navigate`, `click`, `type`, `key`, `scroll`, `back`, `wait`. For `scroll`, the model picks the distance: `down`, `down 3` (screens), `up 0.5`, `top`, `bottom`
 - `message`: talk to you and keep working
 - `done`: give the final answer
 
-Notes on the design:
-- **Coordinates:** Qwen-VL models point on a relative 0–1000 grid ([Qwen3-VL cookbook](https://github.com/QwenLM/Qwen3-VL/blob/main/cookbooks/2d_grounding.ipynb)). `coordinate`/`text` match Qwen's computer-use tool. The backend scales `coordinate` to the 1280×800 viewport, so clicks happen on the real page and a cursor shows each click in the live view.
-- **Feedback and loop guards:** after a click, the model is told what got focus (e.g. `focused input "Search Wikipedia"`). Its past thoughts are not fed back, because small models copy them and loop. Repeating the same action triggers a warning to try something different.
-- **Sessions:** each chat in the sidebar has its own sandbox browser and keeps running when you switch away. Every event is logged per session and replayed when you open it again.
-- **Sandbox, not your Chrome:** the agent drives its own Chromium inside the backend container. It has an empty profile: none of your cookies, logins, passwords or extensions. Each session gets its own isolated browser context, which is thrown away when you delete the session or stop the stack. The container can reach the internet, Ollama on your machine, and `./session_blob`, nothing else.
-- **Live view is read-only:** your Chrome only loads the Glassbox page. The sandbox streams video frames of its own browser (Chrome's screencast) one way to the UI. Websites never load in your browser, and the live view and address bar take no input. Only the agent controls the sandbox browser. Each step's screenshot is also pushed to the live view before the model decides, so the live view always ends on the page the answer came from.
-- **No handoffs in v0:** the agent doesn't log in or buy anything, it only researches and reports.
+### Notes
+
+- **Screenshots + elements, no page text.** The model sees the latest screenshots and a list of the interactive elements on screen now (kind, label, position). It never gets the page's text, so it can only read what is on screen.
+- **Page position.** Each step also says which part of the page is visible, e.g. `Visible: 0–3% of the page (page is 39.1 screens tall, more below)`, so the model knows how far to scroll.
+- **Waits before looking.** Each screenshot waits for the page to load and its requests to settle (capped), so late content like cookie banners is on screen.
+- **Coordinates** are on Qwen-VL's 0–1000 grid ([cookbook](https://github.com/QwenLM/Qwen3-VL/blob/main/cookbooks/2d_grounding.ipynb)), scaled to the 1280×800 viewport.
+- **The live view is screenshots, not a browser.** Chromium runs in the backend container and streams JPEG frames (CDP screencast) to an `<img>`. Websites never load in your browser, and the view takes no input.
+- **Sandboxed.** Each session has its own empty, throwaway browser context: none of your cookies, logins or extensions.
+- **Loop guards.** Past thoughts aren't fed back, since small models copy them. Repeating an action triggers a warning.
+- **Research only.** It never logs in, buys or submits anything.
 
 ```
 backend/app/
@@ -51,9 +54,11 @@ backend/app/
   api/routes/           health, sessions (list/create/delete, ws /chat, ws /live)
   schemas/              API + agent output models
   services/agent.py     BrowserAgent: the loop
+  services/llm.py       the model: OpenAI if configured, otherwise Ollama
   services/prompts.py   what the model reads
   services/browser.py   sandbox Chromium: observe, act, live screencast
   services/sessions.py  in-memory sessions + event log
+  services/tracing.py   optional Langfuse tracing
 frontend/src/
   App.svelte            layout + websockets
   lib/                  Sidebar, Chat, BrowserPanel, reduce.js (events → UI state)
@@ -61,7 +66,7 @@ frontend/src/
 
 ## Demo, step by step
 
-**Prerequisites:** Docker, and [Ollama](https://ollama.com) installed on your machine.
+**Prerequisites:** Docker, and [Ollama](https://ollama.com) installed on your machine (or an OpenAI API key, see [Models](#models)).
 
 1. **Start Ollama and pull a vision model**
    ```bash
@@ -76,16 +81,30 @@ frontend/src/
    ```bash
    docker compose up --build
    ```
-4. **Open http://localhost:3000.** The model chip at top right turns green once Ollama is reachable and the model is pulled.
+4. **Open http://localhost:3000.** The model chip in the sidebar turns green once the model can run (Ollama reachable and the model pulled, or OpenAI accepting the key and model).
 5. **Send a prompt**, or click a suggestion, for example:
    > Open skyscanner.se, find one-way flights from Stockholm to Chicago on 25 November and tell me my options below 10,000 SEK
 6. **Watch it:**
    - The right-hand panel shows the sandbox browser **live**, with the agent's cursor moving to each click.
    - The chat shows each step: the action, the model's reasoning, and how long it took.
-   - Click a step's number, or a thumbnail, to see **Agent's view**: the exact screenshot the model saw and where it pointed.
+   - Click a step's number, or switch to **Agent view**, to see the exact screenshot the model saw and where it pointed. Agent view also has a strip of every step to browse.
 7. **Steer it** while it runs ("only direct flights", "try Google Flights instead"), or press **Stop**.
 8. **Ask a follow-up** after it answers ("which one is fastest?"). It keeps the same browser and conversation.
 9. **New chat** in the sidebar starts another session with its own browser. Switch between them freely; running agents keep going. Screenshots and a `log.jsonl` of every event stay in `./session_blob/{session_id}/` (git-ignored).
+
+### Tracing with Langfuse (optional)
+
+Set `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` and `LANGFUSE_BASE_URL` in `.env` (see [.env.example](.env.example)) and restart. Each task becomes one trace, grouped by chat session:
+
+```
+task                prompt in, final answer out
+  step 1
+    decide          the model call: exact messages + screenshots sent, raw reply, latency
+    click           the browser action and its outcome (ERROR level if it failed)
+  step 2 ...
+```
+
+With the keys unset, tracing is off and no traces leave your machine.
 
 ### Run without Docker (dev)
 
@@ -112,9 +131,11 @@ cd frontend && npm install && npm run dev          # http://localhost:5173 (prox
 | HTTP translator | [api/errors.py](backend/app/api/errors.py) | maps each `ErrorCode` to a status code (404, 422, 502, 503, …). Validation errors, unknown routes and crashes also become `ErrorOut` |
 | UI | [frontend/src/lib/api.js](frontend/src/lib/api.js) | typed client, plus browser-only codes (`backend_unreachable`, `connection_lost`) |
 
-If Ollama is down or the model isn't pulled, a running task stops right away with that error instead of retrying.
+If the model can't run (Ollama down, model not pulled, or OpenAI rejecting the key or model: `model_unavailable`), a running task stops right away with that error instead of retrying.
 
 ## Models
+
+The agent runs on **Ollama** (local) by default. Set both `OPENAI_API_KEY` and `OPENAI_MODEL` in `.env` to use **OpenAI** instead, with any OpenAI vision model that supports structured outputs. Remove either to go back to Ollama. With OpenAI, the screenshots of the sites the agent visits are sent to OpenAI. Everything else stays the same (prompt, screenshots, element list), so runs are comparable. Langfuse tags each trace with the provider and model, so you can filter and compare runs of the same task.
 
 | `OLLAMA_MODEL` | Notes |
 |---|---|

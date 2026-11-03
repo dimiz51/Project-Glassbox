@@ -16,6 +16,7 @@ class SessionOut(BaseModel):
 
 class HealthOut(BaseModel):
     ok: bool
+    provider: str  # openai | ollama
     model: str
-    ollama_url: str
-    error: ErrorOut | None = None  # ollama_unreachable | model_not_pulled
+    url: str  # where the model runs
+    error: ErrorOut | None = None  # ollama_unreachable | model_not_pulled | model_unavailable

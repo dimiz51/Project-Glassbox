@@ -7,7 +7,7 @@
   import { reduce } from './lib/reduce.js'
   import { api, toError, CLIENT_ERRORS } from './lib/api.js'
 
-  let health = $state(null) // { ok, model, ollama_url, error }
+  let health = $state(null) // { ok, provider, model, url, error }
   let sessions = $state([])
   let activeId = $state(null)
   let events = $state.raw([]) // event log of the active session (replayed by the backend)
