@@ -30,14 +30,14 @@
     {/each}
   </nav>
 
-  <footer class="model" title={health?.ollama_url || ''}>
+  <footer class="model" title={health?.url || ''}>
     <span class="status" class:bad={health && !health.ok}></span>
     <div>
       {#if !health}
         <small>Checking the model…</small>
       {:else if health.ok}
         <strong>{health.model}</strong>
-        <small>Ollama · running locally</small>
+        <small>{health.provider === 'openai' ? 'OpenAI · cloud' : 'Ollama · running locally'}</small>
       {:else}
         {#if health.model}<strong>{health.model}</strong>{/if}
         <small class="problem"><ErrorText error={health.error} compact /></small>

@@ -7,6 +7,7 @@ websocket as events with the same ErrorOut shape.
 """
 
 import httpx
+import openai
 from pydantic import ValidationError
 
 from app.core.config import settings
@@ -27,7 +28,21 @@ class DomainError(Exception):
         self.out = ErrorOut(code=self.code, message=message, hint=hint, detail=detail)
 
 
-# ---- model (Ollama) ---------------------------------------------------------
+# ---- model (OpenAI or Ollama) -------------------------------------------------
+
+class ModelUnavailable(DomainError):
+    """OpenAI refused or can't be reached: bad key, unknown model, no credit left."""
+
+    code = ErrorCode.MODEL_UNAVAILABLE
+
+    def __init__(self, cause: BaseException | None = None):
+        super().__init__(
+            f"OpenAI can't run {settings.openai_model}.",
+            hint="Check OPENAI_API_KEY and OPENAI_MODEL in .env (and your OpenAI billing), "
+                 "or remove them to use Ollama.",
+            detail=_first_line(cause),
+        )
+
 
 class OllamaUnreachable(DomainError):
     code = ErrorCode.OLLAMA_UNREACHABLE
@@ -67,12 +82,18 @@ class ModelFailed(DomainError):
 
 
 def from_model_error(e: BaseException) -> DomainError:
-    """Turn whatever the LangChain/Ollama call raised into a typed error."""
-    if isinstance(e, (httpx.ConnectError, ConnectionError)):
-        return OllamaUnreachable(e)
-    text = str(e).lower()
-    if "not found" in text and ("model" in text or settings.ollama_model in text):
-        return ModelNotPulled()
+    """Turn whatever the LangChain model call raised into a typed error."""
+    if settings.provider == "openai":
+        unusable = (openai.AuthenticationError, openai.PermissionDeniedError, openai.NotFoundError,
+                    openai.APIConnectionError)
+        if isinstance(e, unusable) or (isinstance(e, openai.RateLimitError) and "insufficient_quota" in str(e)):
+            return ModelUnavailable(e)
+    else:
+        if isinstance(e, (httpx.ConnectError, ConnectionError)):
+            return OllamaUnreachable(e)
+        text = str(e).lower()
+        if "not found" in text and ("model" in text or settings.ollama_model in text):
+            return ModelNotPulled()
     if isinstance(e, (ValidationError, ValueError)):
         return ModelInvalidOutput(e)
     return ModelFailed(e)

@@ -7,10 +7,10 @@ from fastapi.staticfiles import StaticFiles
 from app.api import errors as http_errors
 from app.api.router import api_router
 from app.core.config import settings
-from app.services import browser, sessions
+from app.services import browser, sessions, tracing
 
 DESCRIPTION = """
-A local vision model (Ollama) drives a sandboxed Chromium to answer prompts.
+A vision model (local Ollama, or OpenAI) drives a sandboxed Chromium to answer prompts.
 
 **Errors**: every error response is an `ErrorOut`: a fixed `code`, a human `message`, a `hint`
 on what to do next, and an optional technical `detail`. Agent errors arrive as websocket events
@@ -18,7 +18,7 @@ with the same shape.
 """
 
 TAGS = [
-    {"name": "health", "description": "Is Ollama reachable and the model pulled?"},
+    {"name": "health", "description": "Can the model provider (Ollama or OpenAI) run the configured model?"},
     {
         "name": "sessions",
         "description": """Each session has its own sandbox browser, chat history and event log.
@@ -43,6 +43,7 @@ async def lifespan(_: FastAPI):
     yield
     await sessions.close_all()
     await browser.shutdown()
+    tracing.shutdown()
 
 
 app = FastAPI(

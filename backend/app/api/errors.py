@@ -22,6 +22,7 @@ HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.SESSION_NOT_FOUND: 404,
     ErrorCode.OLLAMA_UNREACHABLE: 503,  # a dependency is down, retry later
     ErrorCode.MODEL_NOT_PULLED: 503,
+    ErrorCode.MODEL_UNAVAILABLE: 503,
     ErrorCode.BROWSER_START_FAILED: 503,
     ErrorCode.MODEL_FAILED: 502,  # the upstream model misbehaved
     ErrorCode.MODEL_INVALID_OUTPUT: 502,

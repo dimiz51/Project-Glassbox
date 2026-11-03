@@ -16,5 +16,7 @@ class AgentAction(BaseModel):
     coordinate: list[int] | None = Field(
         None, min_length=2, max_length=2, description="[x, y], each 0-1000. For click and type."
     )
-    # URL (navigate), text to type (type), key name (key), up/down (scroll), or text for the user (message, done)
-    text: str | None = Field(None, description="URL, text to type, key, up/down, or message to the user.")
+    # URL (navigate), text to type (type), key name (key), direction + screens (scroll), or text for the user
+    text: str | None = Field(
+        None, description="URL, text to type, key, scroll (e.g. down 3, up, bottom), or message to the user."
+    )

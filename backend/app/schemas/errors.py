@@ -8,6 +8,7 @@ from pydantic import BaseModel
 class ErrorCode(StrEnum):
     OLLAMA_UNREACHABLE = "ollama_unreachable"
     MODEL_NOT_PULLED = "model_not_pulled"
+    MODEL_UNAVAILABLE = "model_unavailable"
     MODEL_FAILED = "model_failed"
     MODEL_INVALID_OUTPUT = "model_invalid_output"
     BROWSER_ACTION_FAILED = "browser_action_failed"
