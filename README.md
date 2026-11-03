@@ -2,6 +2,8 @@
 
 You give a prompt. A **local vision model** (Ollama) drives a **sandboxed Chromium** until it can answer. You watch its browser live next to the chat and can steer the agent with chat messages.
 
+![Glassbox answering "how tall is the Eiffel Tower and when was it built" by browsing Wikipedia (qwen3.5:9b, 5 steps, sped up 4×)](readme-images/demo.gif)
+
 ```
  your browser: Svelte UI (:3000)              backend container: FastAPI (:8000)
 ┌──────────────────────────────┐             ┌─────────────────────────────────────────┐
