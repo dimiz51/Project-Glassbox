@@ -139,6 +139,8 @@ The agent runs on **Ollama** (local) by default. Set both `OPENAI_API_KEY` and `
 
 **OpenRouter** gives you any model (Qwen, Gemini, Claude, GPT, …) through one key: set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` to an OpenRouter model id, e.g. `qwen/qwen3-vl-32b-instruct`. It speaks the OpenAI API, so it's the same client with a different base URL. Pick a model that takes images and supports structured outputs ([filtered list](https://openrouter.ai/models?modality=image&supported_parameters=structured_outputs)). If both pairs are set, OpenAI wins.
 
+**Text-only models** (e.g. `inception/mercury-3`) work too with `HISTORY_IMAGES=0`: the model never sees a screenshot and navigates from the element list (labels + positions) alone. Expect weaker results on visually dense pages.
+
 With a cloud provider, the screenshots of the sites the agent visits are sent to it. Everything else stays the same (prompt, screenshots, element list), so runs are comparable. Langfuse tags each trace with the provider and model, so you can filter and compare runs of the same task.
 
 | `OLLAMA_MODEL` | Notes |

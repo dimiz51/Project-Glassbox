@@ -48,7 +48,7 @@ async def _check_openai():
 
 async def _check_openrouter():
     """Two free calls: the key endpoint (401 on a bad key) and the model's public metadata (404 if unknown),
-    which also says whether the model takes images."""
+    which also says whether the model takes images. A text-only model is fine with HISTORY_IMAGES=0."""
     base = settings.openrouter_base_url
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -58,7 +58,10 @@ async def _check_openrouter():
             r = await client.get(f"{base}/models/{settings.openrouter_model}/endpoints")
             if r.status_code != 200:
                 return errors.ModelUnavailable(Exception(f"unknown model: HTTP {r.status_code}: {r.text[:200]}")).out
-            if "image" not in r.json().get("data", {}).get("architecture", {}).get("input_modalities", ["image"]):
-                return errors.ModelUnavailable(Exception("this model doesn't take images; pick a vision model")).out
+            inputs = r.json().get("data", {}).get("architecture", {}).get("input_modalities", ["image"])
+            if "image" not in inputs and settings.history_images > 0:
+                return errors.ModelUnavailable(Exception(
+                    "this model doesn't take images: pick a vision model, or set HISTORY_IMAGES=0 "
+                    "to run text-only (element list, no screenshots)")).out
     except Exception as e:
         return errors.ModelUnavailable(e).out
