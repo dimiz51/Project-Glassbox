@@ -10,14 +10,14 @@
 - 🧭 **Steerable.** Type while it works (e.g. " Please only direct flights") or stop it.
 - 🔍 **Inspectable.** See the exact screenshot the model saw at each step and where it clicked.
 - 🔒 **Sandboxed.** Each chat gets its own throwaway browser: none of your cookies or logins. It never logs in, buys or submits anything.
-- 🏠 **Local by default.** Runs on Ollama on your machine. OpenAI is optional.
+- 🏠 **Local by default.** Runs on Ollama on your machine. OpenAI and OpenRouter are optional.
 - 📈 **Traceable.** Optional Langfuse tracing of every model call and action.
 
 **Contents:** [Quick start](#quick-start) · [Using it](#using-it) · [Configuration](#configuration) · [How it works](#how-it-works) · [API & errors](#api--errors) · [Glossary](#glossary)
 
 ## Quick start
 
-Both ways need a model: [Ollama](https://ollama.com) with a vision model pulled, or an [OpenAI key](#models). In both, the model chip in the sidebar turns green when the model is ready.
+Both ways need a model: [Ollama](https://ollama.com) with a vision model pulled, or an [OpenAI or OpenRouter key](#models). In both, the model chip in the sidebar turns green when the model is ready.
 
 ```bash
 ollama serve                  # skip if the Ollama app is already running
@@ -81,8 +81,9 @@ All settings live in `.env` (see [.env.example](.env.example)).
 | `OLLAMA_MODEL` | `qwen3.5:9b` | Any Ollama vision model |
 | `OLLAMA_THINK` | `false` | Thinking mode: better plans, much slower steps |
 | `OPENAI_API_KEY` + `OPENAI_MODEL` | — | Set both to use OpenAI instead of Ollama |
+| `OPENROUTER_API_KEY` + `OPENROUTER_MODEL` | — | Set both to use OpenRouter instead of Ollama (OpenAI wins if both pairs are set) |
 | `MAX_STEPS` | `30` | Steps before the agent gives up |
-| `HISTORY_MESSAGES` / `HISTORY_IMAGES` | `10` / `3` | How much history the model sees, and how many past screenshots |
+| `HISTORY_MESSAGES` / `HISTORY_IMAGES` | `10` / `3` | How much history the model sees, and how many past screenshots. `HISTORY_IMAGES=0` is text-only mode |
 | `HEADLESS` | `true` | Runbook B only. `false` opens the sandbox window (Docker is always headed) |
 | `LANGFUSE_*` | — | Turns on tracing |
 
@@ -90,7 +91,13 @@ All settings live in `.env` (see [.env.example](.env.example)).
 
 **Ollama** (local) is the default. `qwen3.5:9b` is a good balance, at about 10–25 s per step on an M-series Mac.
 
-**OpenAI:** set both `OPENAI_API_KEY` and `OPENAI_MODEL`. Any vision model with structured outputs works. With OpenAI, screenshots of the sites the agent visits go to OpenAI. The prompt and inputs are otherwise identical, so runs are comparable.
+**OpenAI:** set both `OPENAI_API_KEY` and `OPENAI_MODEL`. Any vision model with structured outputs works.
+
+**OpenRouter:** set both `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` to an OpenRouter model id, e.g. `qwen/qwen3-vl-32b-instruct`. One key for any model (Qwen, Gemini, Claude, GPT, …); it speaks the OpenAI API, so it's the same client with a different base URL. Pick a model that takes images and supports structured outputs ([filtered list](https://openrouter.ai/models?modality=image&supported_parameters=structured_outputs)).
+
+**Text-only models** (e.g. `inception/mercury-3`) work with `HISTORY_IMAGES=0`: the model never sees a screenshot and navigates from the element list (labels + positions) alone. Expect weaker results on visually dense pages.
+
+With a cloud provider, screenshots of the sites the agent visits go to it. The prompt and inputs are otherwise identical, so runs are comparable.
 
 ### Tracing with Langfuse
 
@@ -127,7 +134,7 @@ flowchart LR
     blob[("session_blob/{id}/<br/>PNG per step + log.jsonl")]
   end
 
-  llm["Ollama (your machine)<br/>or OpenAI"]
+  llm["Ollama (your machine),<br/>OpenAI or OpenRouter"]
 
   chat <-->|"ws /chat: prompts, steering, step events"| agent
   agent <-->|"LangChain: screenshots + state in, JSON action out"| llm
@@ -221,7 +228,7 @@ backend/app/
   api/routes/           health, sessions (list/create/delete, ws /chat, ws /live)
   schemas/              API + agent output models
   services/agent.py     BrowserAgent: the loop
-  services/llm.py       the model: OpenAI if configured, otherwise Ollama
+  services/llm.py       the model: OpenAI or OpenRouter if configured, otherwise Ollama
   services/prompts.py   what the model reads
   services/browser.py   sandbox Chromium: observe, act, live screencast
   services/sessions.py  in-memory sessions + event log
@@ -242,7 +249,7 @@ frontend/src/
  "hint": "Run `ollama pull qwen3.5:9b`, or set OLLAMA_MODEL in .env to a model you have.", "detail": null}
 ```
 
-If the model can't run (Ollama down, model not pulled, OpenAI rejecting the key), the task stops right away instead of retrying.
+If the model can't run (Ollama down, model not pulled, OpenAI or OpenRouter rejecting the key or model), the task stops right away instead of retrying.
 
 <details>
 <summary>How errors are layered</summary>

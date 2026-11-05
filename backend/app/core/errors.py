@@ -28,18 +28,24 @@ class DomainError(Exception):
         self.out = ErrorOut(code=self.code, message=message, hint=hint, detail=detail)
 
 
-# ---- model (OpenAI or Ollama) -------------------------------------------------
+# ---- model (OpenAI, OpenRouter or Ollama) --------------------------------------
+
+CLOUD = {  # provider -> (display name, its .env variables)
+    "openai": ("OpenAI", "OPENAI_API_KEY and OPENAI_MODEL"),
+    "openrouter": ("OpenRouter", "OPENROUTER_API_KEY and OPENROUTER_MODEL"),
+}
+
 
 class ModelUnavailable(DomainError):
-    """OpenAI refused or can't be reached: bad key, unknown model, no credit left."""
+    """The cloud provider refused or can't be reached: bad key, unknown model, no credit left."""
 
     code = ErrorCode.MODEL_UNAVAILABLE
 
     def __init__(self, cause: BaseException | None = None):
+        name, env = CLOUD[settings.provider]
         super().__init__(
-            f"OpenAI can't run {settings.openai_model}.",
-            hint="Check OPENAI_API_KEY and OPENAI_MODEL in .env (and your OpenAI billing), "
-                 "or remove them to use Ollama.",
+            f"{name} can't run {settings.model}.",
+            hint=f"Check {env} in .env (and your {name} credits), or remove them to use Ollama.",
             detail=_first_line(cause),
         )
 
@@ -83,10 +89,12 @@ class ModelFailed(DomainError):
 
 def from_model_error(e: BaseException) -> DomainError:
     """Turn whatever the LangChain model call raised into a typed error."""
-    if settings.provider == "openai":
+    if settings.provider in CLOUD:  # both go through the openai client, so they raise the same errors
         unusable = (openai.AuthenticationError, openai.PermissionDeniedError, openai.NotFoundError,
                     openai.APIConnectionError)
-        if isinstance(e, unusable) or (isinstance(e, openai.RateLimitError) and "insufficient_quota" in str(e)):
+        out_of_credit = (isinstance(e, openai.RateLimitError) and "insufficient_quota" in str(e)) or (
+            isinstance(e, openai.APIStatusError) and e.status_code == 402)  # OpenRouter: no credits left
+        if isinstance(e, unusable) or out_of_credit:
             return ModelUnavailable(e)
     else:
         if isinstance(e, (httpx.ConnectError, ConnectionError)):

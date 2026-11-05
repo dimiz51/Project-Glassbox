@@ -1,7 +1,8 @@
 """Everything the model reads: the system prompt and the step-by-step conversation.
 
 Each step adds a screenshot (user turn) and the model's action (assistant turn). Only the latest steps
-are sent, and only the newest HISTORY_IMAGES screenshots (default 3) carry the image.
+are sent, and only the newest HISTORY_IMAGES screenshots (default 3) carry the image. HISTORY_IMAGES=0
+is text-only mode: no images at all, the model works from the element list (for text-only models).
 """
 
 import base64
@@ -15,13 +16,9 @@ from app.schemas.agent import AgentAction
 SYSTEM_PROMPT = """You are a web agent controlling a real Chromium browser to complete the user's task.
 Today is {today}.
 
-Every step you get a screenshot of the browser, the current URL and the tab title, which part of the
-page is visible (in % of the page height, so you know if there is more below), and a list of the
-interactive elements on screen right now (links, buttons, inputs...) with their centre. Your previous
-steps are in the conversation, each action followed by the screenshot it led to (only the latest few
-screenshots are attached). The last screenshot is the screen right now; the ones before it show what
-your recent actions did. Positions are [x, y] in relative coordinates 0-1000 ([0, 0] = top-left,
-[1000, 1000] = bottom-right of the screenshot), whatever its size in pixels.
+{view}
+Positions are [x, y] in relative coordinates 0-1000 ([0, 0] = top-left, [1000, 1000] = bottom-right
+of the screen), whatever its size in pixels.
 Reply with exactly ONE output as JSON:
 
 Browser actions:
@@ -40,7 +37,7 @@ Talking to the user:
 As soon as you can answer the task, use done (not message).
 
 Rules:
-- Click what is in the element list or visible in the screenshot, taking the coordinate from the list
+- Click what is in the element list (or visible on screen), taking the coordinate from the list
   when the target is listed. Text that looks like a heading may be a link: check the list.
 - If what you need is not on screen, scroll to find it (site links like Careers or Contact are often
   in the menu or the footer).
@@ -55,8 +52,27 @@ Rules:
 """
 
 
+VISION_VIEW = """Every step you get a screenshot of the browser, the current URL and the tab title, which part of the
+page is visible (in % of the page height, so you know if there is more below), and a list of the
+interactive elements on screen right now (links, buttons, inputs...) with their centre. Your previous
+steps are in the conversation, each action followed by the screenshot it led to (only the latest few
+screenshots are attached). The last screenshot is the screen right now; the ones before it show what
+your recent actions did."""
+
+TEXT_ONLY_VIEW = """You cannot see the screen. Every step you get the current URL and the tab title, which part of the
+page is visible (in % of the page height, so you know if there is more below), and a list of the
+interactive elements on screen right now (links, buttons, inputs...) with their label and centre. That
+list is all you know about the page: pick targets from it, and scroll when what you need isn't listed.
+Your previous steps are in the conversation."""
+
+
+def text_only() -> bool:
+    return settings.history_images == 0
+
+
 def system_message() -> SystemMessage:
-    return SystemMessage(content=SYSTEM_PROMPT.format(today=date.today().strftime("%A %d %B %Y")))
+    view = TEXT_ONLY_VIEW if text_only() else VISION_VIEW
+    return SystemMessage(content=SYSTEM_PROMPT.format(today=date.today().strftime("%A %d %B %Y"), view=view))
 
 
 def observation(step: int, obs: dict) -> HumanMessage:
@@ -89,7 +105,8 @@ def conversation(task: str, history: list[str], steps: list[BaseMessage], obs: d
         + loop_warning(history)
         + format_scroll(obs["scroll"])
         + f"Interactive elements on the current screen [x, y]:\n{format_elements(obs['elements'])}\n\n"
-        + "The last screenshot above is the screen right now. What is your next output?"
+        + ("That list is the screen right now." if text_only() else "The last screenshot above is the screen right now.")
+        + " What is your next output?"
     )
     return [HumanMessage(task), *recent, HumanMessage(now)]
 

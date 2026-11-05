@@ -8,9 +8,13 @@ ROOT = Path(__file__).resolve().parents[3]  # project root (parent of backend/)
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT / ".env", extra="ignore")
 
-    # LLM (via LangChain): OpenAI when both OpenAI settings are set, otherwise Ollama on your machine
+    # LLM (via LangChain): a cloud provider when its key + model pair is set (OpenAI wins if both are),
+    # otherwise Ollama on your machine
     openai_api_key: str | None = None
     openai_model: str | None = None
+    openrouter_api_key: str | None = None
+    openrouter_model: str | None = None  # OpenRouter id, e.g. qwen/qwen3-vl-32b-instruct
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"  # speaks the OpenAI API
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen3.5:9b"
     ollama_num_ctx: int = 16384
@@ -35,12 +39,16 @@ class Settings(BaseSettings):
 
     @property
     def provider(self) -> str:
-        return "openai" if self.openai_api_key and self.openai_model else "ollama"
+        if self.openai_api_key and self.openai_model:
+            return "openai"
+        if self.openrouter_api_key and self.openrouter_model:
+            return "openrouter"
+        return "ollama"
 
     @property
     def model(self) -> str:
         """The model in use, whichever provider it is."""
-        return self.openai_model if self.provider == "openai" else self.ollama_model
+        return {"openai": self.openai_model, "openrouter": self.openrouter_model}.get(self.provider, self.ollama_model)
 
 
 settings = Settings()
