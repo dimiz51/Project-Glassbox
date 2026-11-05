@@ -1,13 +1,13 @@
 # Project Glassbox
 
-You give a prompt. A **vision model** (local with Ollama, or OpenAI) drives a **sandboxed Chromium** until it can answer. You watch its browser live next to the chat and can steer the agent with chat messages.
+You give a prompt. A **vision model** (local with Ollama, or OpenAI / OpenRouter) drives a **sandboxed Chromium** until it can answer. You watch its browser live next to the chat and can steer the agent with chat messages.
 
 ![Glassbox answering "how tall is the Eiffel Tower and when was it built" by browsing Wikipedia (qwen3.5:9b, 5 steps, sped up 4×)](readme-images/demo.gif)
 
 ```
  your browser: Svelte UI (:3000)              backend container: FastAPI (:8000)
 ┌──────────────────────────────┐             ┌─────────────────────────────────────────┐
-│ chat panel                   │◄─ ws/chat ─►│ BrowserAgent loop ── LangChain ──►  Ollama (your machine) or OpenAI
+│ chat panel                   │◄─ ws/chat ─►│ BrowserAgent loop ── LangChain ──►  Ollama (your machine), OpenAI or OpenRouter
 │ live browser view (read-only)│◄─ ws/live ──│ sandbox Chromium (Playwright, Xvfb)     │
 └──────────────────────────────┘  frames     │ screenshots → ./session_blob/{id}/      │
                                              └─────────────────────────────────────────┘
@@ -21,7 +21,7 @@ The loop is `BrowserAgent.run` in [backend/app/services/agent.py](backend/app/se
 |---|---|
 | `read_user_messages()` | pick up anything you typed while the agent was working (steering) |
 | `observe()` | waits for the page to load and settle, then takes a screenshot (saved to `session_blob/{id}/`) and lists the interactive elements on screen with their centre on a **0–1000 grid**, plus the URL, tab title and which part of the page is visible (in % of its height) |
-| `decide()` | one LangChain model call ([llm.py](backend/app/services/llm.py): Ollama or OpenAI). It gets your task, the last `HISTORY_MESSAGES` messages of steps and actions (default 10; only the newest `HISTORY_IMAGES` screenshots are sent as images, default 3), and the current browser state. The provider constrains the reply to one JSON object ([schema](backend/app/schemas/agent.py)) |
+| `decide()` | one LangChain model call ([llm.py](backend/app/services/llm.py): Ollama, OpenAI or OpenRouter). It gets your task, the last `HISTORY_MESSAGES` messages of steps and actions (default 10; only the newest `HISTORY_IMAGES` screenshots are sent as images, default 3), and the current browser state. The provider constrains the reply to one JSON object ([schema](backend/app/schemas/agent.py)) |
 | `respond()` | the output is `message` (talk to you, keep working) or `done` (final answer) |
 | `act()` | the output is a browser action, run with Playwright |
 
@@ -54,7 +54,7 @@ backend/app/
   api/routes/           health, sessions (list/create/delete, ws /chat, ws /live)
   schemas/              API + agent output models
   services/agent.py     BrowserAgent: the loop
-  services/llm.py       the model: OpenAI if configured, otherwise Ollama
+  services/llm.py       the model: OpenAI or OpenRouter if configured, otherwise Ollama
   services/prompts.py   what the model reads
   services/browser.py   sandbox Chromium: observe, act, live screencast
   services/sessions.py  in-memory sessions + event log
@@ -66,7 +66,7 @@ frontend/src/
 
 ## Demo, step by step
 
-**Prerequisites:** Docker, and [Ollama](https://ollama.com) installed on your machine (or an OpenAI API key, see [Models](#models)).
+**Prerequisites:** Docker, and [Ollama](https://ollama.com) installed on your machine (or an OpenAI or OpenRouter key, see [Models](#models)).
 
 1. **Start Ollama and pull a vision model**
    ```bash
@@ -81,7 +81,7 @@ frontend/src/
    ```bash
    docker compose up --build
    ```
-4. **Open http://localhost:3000.** The model chip in the sidebar turns green once the model can run (Ollama reachable and the model pulled, or OpenAI accepting the key and model).
+4. **Open http://localhost:3000.** The model chip in the sidebar turns green once the model can run (Ollama reachable and the model pulled, or OpenAI / OpenRouter accepting the key and model).
 5. **Send a prompt**, or click a suggestion, for example:
    > Open skyscanner.se, find one-way flights from Stockholm to Chicago on 25 November and tell me my options below 10,000 SEK
 6. **Watch it:**
@@ -131,11 +131,15 @@ cd frontend && npm install && npm run dev          # http://localhost:5173 (prox
 | HTTP translator | [api/errors.py](backend/app/api/errors.py) | maps each `ErrorCode` to a status code (404, 422, 502, 503, …). Validation errors, unknown routes and crashes also become `ErrorOut` |
 | UI | [frontend/src/lib/api.js](frontend/src/lib/api.js) | typed client, plus browser-only codes (`backend_unreachable`, `connection_lost`) |
 
-If the model can't run (Ollama down, model not pulled, or OpenAI rejecting the key or model: `model_unavailable`), a running task stops right away with that error instead of retrying.
+If the model can't run (Ollama down, model not pulled, or OpenAI / OpenRouter rejecting the key or model: `model_unavailable`), a running task stops right away with that error instead of retrying.
 
 ## Models
 
-The agent runs on **Ollama** (local) by default. Set both `OPENAI_API_KEY` and `OPENAI_MODEL` in `.env` to use **OpenAI** instead, with any OpenAI vision model that supports structured outputs. Remove either to go back to Ollama. With OpenAI, the screenshots of the sites the agent visits are sent to OpenAI. Everything else stays the same (prompt, screenshots, element list), so runs are comparable. Langfuse tags each trace with the provider and model, so you can filter and compare runs of the same task.
+The agent runs on **Ollama** (local) by default. Set both `OPENAI_API_KEY` and `OPENAI_MODEL` in `.env` to use **OpenAI** instead, with any OpenAI vision model that supports structured outputs. Remove either to go back to Ollama.
+
+**OpenRouter** gives you any model (Qwen, Gemini, Claude, GPT, …) through one key: set `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` to an OpenRouter model id, e.g. `qwen/qwen3-vl-32b-instruct`. It speaks the OpenAI API, so it's the same client with a different base URL. Pick a model that takes images and supports structured outputs ([filtered list](https://openrouter.ai/models?modality=image&supported_parameters=structured_outputs)). If both pairs are set, OpenAI wins.
+
+With a cloud provider, the screenshots of the sites the agent visits are sent to it. Everything else stays the same (prompt, screenshots, element list), so runs are comparable. Langfuse tags each trace with the provider and model, so you can filter and compare runs of the same task.
 
 | `OLLAMA_MODEL` | Notes |
 |---|---|

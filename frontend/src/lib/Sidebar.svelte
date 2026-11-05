@@ -3,6 +3,8 @@
   import ErrorText from './ErrorText.svelte'
 
   let { sessions, activeId, health, open = $bindable(), onselect, oncreate, ondelete } = $props()
+
+  const PROVIDERS = { openai: 'OpenAI · cloud', openrouter: 'OpenRouter · cloud', ollama: 'Ollama · running locally' }
 </script>
 
 <aside class="side" class:open>
@@ -37,7 +39,7 @@
         <small>Checking the model…</small>
       {:else if health.ok}
         <strong>{health.model}</strong>
-        <small>{health.provider === 'openai' ? 'OpenAI · cloud' : 'Ollama · running locally'}</small>
+        <small>{PROVIDERS[health.provider] ?? health.provider}</small>
       {:else}
         {#if health.model}<strong>{health.model}</strong>{/if}
         <small class="problem"><ErrorText error={health.error} compact /></small>

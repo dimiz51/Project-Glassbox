@@ -1,6 +1,6 @@
-"""The model the agent talks to: OpenAI when OPENAI_API_KEY and OPENAI_MODEL are set, otherwise Ollama.
+"""The model the agent talks to: OpenAI or OpenRouter when their key + model are set, otherwise Ollama.
 
-Either way one call returns {"parsed": AgentAction | None, "raw": AIMessage}: the provider constrains
+Whichever it is, one call returns {"parsed": AgentAction | None, "raw": AIMessage}: the provider constrains
 the reply to the AgentAction JSON schema.
 """
 
@@ -12,9 +12,17 @@ from app.schemas.agent import AgentAction
 
 
 def chat_model():
+    # no temperature for the cloud providers: reasoning models only accept the default
     if settings.provider == "openai":
-        # no temperature: OpenAI's reasoning models only accept the default
         llm = ChatOpenAI(model=settings.openai_model, api_key=settings.openai_api_key)
+    elif settings.provider == "openrouter":
+        # OpenRouter speaks the OpenAI API: same client, different base URL
+        llm = ChatOpenAI(
+            model=settings.openrouter_model,
+            api_key=settings.openrouter_api_key,
+            base_url=settings.openrouter_base_url,
+            default_headers={"X-OpenRouter-Title": "Project Glassbox"},  # optional: names the app in OpenRouter's activity view
+        )
     else:
         llm = ChatOllama(
             model=settings.ollama_model,
